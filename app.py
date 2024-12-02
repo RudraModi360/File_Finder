@@ -15,7 +15,7 @@ from langchain.chains.conversation.memory import ConversationBufferMemory
 from langchain.agents import AgentExecutor
 
 # Initialize the Groq LLM
-groq_api_key = "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"
+groq_api_key = "your Groq api key "
 llm = ChatGroq(groq_api_key=groq_api_key, model_name="llama3-groq-70b-8192-tool-use-preview", temperature=0.1)
 
 # Embeddings and Vector Store Setup
