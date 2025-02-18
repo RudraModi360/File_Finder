@@ -2,12 +2,13 @@ import os
 import hashlib
 import json
 import threading
-import uuid
+import uuid,time
+from tqdm import tqdm
 from langchain_cohere import CohereEmbeddings
 from langchain_chroma import Chroma
 import numpy as np
 from langchain_ollama import OllamaEmbeddings
-from langchain_community.document_loaders import TextLoader
+from langchain_community.document_loaders import TextLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 TRACKER_DIR = "C:\\Users\\rudra\\Desktop"
@@ -18,25 +19,62 @@ embedding_model = OllamaEmbeddings(
     model="nomic-embed-text:latest",
 )
 
+
+def create_Database():
+    folder_paths = []
+    user_dir = ["Downloads", "Documents", "Desktop"]
+    Root_dir = "C:\\Users\\rudra"
+    for root_dir in user_dir:
+        folder_path = os.path.join(Root_dir, root_dir)
+        for folder in os.listdir(folder_path):
+            path = os.path.join(folder_path, folder)
+            if os.path.isdir(path):
+                folder_paths.append(path)
+    for folder in tqdm(folder_paths):
+        print(f"🔄 Processing folder: {folder}")
+        db = Chroma(persist_directory=DB_PATH, embedding_function=embedding_model)
+        loader = DirectoryLoader(
+            path=folder,
+            loader_cls=TextLoader,
+            silent_errors=True,
+            glob=["*.py", "*.txt", "*.java"],
+            recursive=True,
+        )
+
+        docs = loader.load()
+        if not docs:
+            print(f"⚠ No documents found in {folder}")
+            continue
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=10)
+        docs = text_splitter.split_documents(docs)
+        doc_ids = [str(uuid.uuid4()) for _ in range(len(docs))]
+        print(f"🆔 Generated {len(doc_ids)} unique IDs for {len(docs)} documents")
+        db.add_documents(documents=docs, ids=doc_ids)
+        stored_ids = db.get()["ids"]
+        print(f"✅ ChromaDB now contains {len(stored_ids)} documents")
+    print("🎉 All files indexed successfully!")
+    return db
+
 def load_vector_db():
     if os.path.isdir(DB_PATH):
         print("🔄 Loading existing vector database...")
         return Chroma(persist_directory=DB_PATH, embedding_function=embedding_model)
     else:
-        print("❌ Database directory does not exist. Returning None.")
-        return None
+        print("❌ Database directory does not exist. So Creating new one ...")
+        return create_Database()
 
-# Function for similarity search in the vector database
+
 def similarity_search(query, vectorstore):
     print(f"🔍 Performing similarity search for: {query}")
-    search_results = vectorstore.similarity_search(query, k=5)  
+    search_results = vectorstore.similarity_search(query, k=5)
     if search_results:
         print("📄 Similar Results Found:")
         for result in search_results:
-            print(f"  - {result.metadata['source']}: {result.page_content[:200]}...")  # Adjust the preview of text
+            print(f"  - {result.metadata['source']}: {result.page_content[:200]}...")
     else:
         print("❌ No similar results found.")
     return search_results
+
 
 def remove_file_chunks(vectorstore: Chroma, file_path):
     docs = vectorstore.get(where={"source": file_path})
@@ -47,10 +85,10 @@ def remove_file_chunks(vectorstore: Chroma, file_path):
     else:
         print(f"❌ No documents found for the given file path: {file_path}")
 
+
 def add_db(vectorstore: Chroma, filepath):
     print(f"📄 Loading file: {filepath} into vector DB...")
-    loader = TextLoader(filepath)
-    
+    loader = TextLoader(filepath, encoding="utf-8")
     try:
         docs = loader.load()
     except UnicodeDecodeError:
@@ -60,32 +98,31 @@ def add_db(vectorstore: Chroma, filepath):
         print(f"❌ Error loading file {filepath}: {e}")
         return
 
-    # Split documents
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=10)
     docs = text_splitter.split_documents(docs)
 
-    # Check if docs is empty
     if not docs:
         print(f"❌ No valid documents found in {filepath}. Skipping this file.")
         return
 
-    # Generate unique ids for each document
     ids = [str(uuid.uuid4()) for _ in docs]
 
-    # Ensure the number of ids matches the number of documents
     if len(ids) != len(docs):
-        print(f"❌ Mismatch between number of documents and ids for {filepath}. Skipping this file.")
+        print(
+            f"❌ Mismatch between number of documents and ids for {filepath}. Skipping this file."
+        )
         return
 
-    # Add documents to the vector store
     vectorstore.add_documents(documents=docs, ids=ids)
     print(f"✅ File: {filepath} added to vector DB.")
+
 
 def update_db(vectorstore: Chroma, filepath):
     print(f"🔄 Updating database for: {filepath}...")
     remove_file_chunks(vectorstore, filepath)
     add_db(vectorstore, filepath)
     print(f"✅ File: {filepath} has been updated successfully.")
+
 
 def get_file_hash(filepath):
     """Generate a SHA-256 hash for file content."""
@@ -98,6 +135,7 @@ def get_file_hash(filepath):
     except Exception as e:
         print(f"❌ Error hashing {filepath}: {e}")
         return None
+
 
 def create_snapshot(directory):
     """Creates a snapshot of all files in the directory."""
@@ -115,6 +153,7 @@ def create_snapshot(directory):
         json.dump(snapshot, f, indent=4)
 
     print("✅ Snapshot created.")
+
 
 def track_directory(db: Chroma, directory):
     if not os.path.exists(directory):
@@ -167,7 +206,7 @@ def track_directory(db: Chroma, directory):
         print("🟡 Modified Files:")
         for file in modified:
             print(f"  - {file}")
-    
+
     valid_ext = ["py", "txt", "java"]
     for file in removed:
         if file.split(".")[-1] in valid_ext:
@@ -184,23 +223,21 @@ def track_directory(db: Chroma, directory):
             update_db(db, file)
             print(f"🔄 File: {file} updated in DB.")
 
-# Load the vector database once before the loop
+
 db = load_vector_db()
 
-# If the database isn't loaded properly, exit
 if db is None:
     print("❌ Exiting: Could not load vector database.")
 else:
-    # Function to run directory monitoring in the background
+
     def monitor_directory():
         while True:
             track_directory(db, TRACKER_DIR)
+            time.sleep(3)
 
-    # Start the directory monitoring in a background thread
     directory_thread = threading.Thread(target=monitor_directory, daemon=True)
     directory_thread.start()
 
-    # Continuously accept user input for similarity search
     while True:
         query = input("🔍 Enter search query: ")
         if query.lower() == "exit":
