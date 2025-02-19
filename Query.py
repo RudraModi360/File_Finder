@@ -2,7 +2,7 @@ import os
 import hashlib
 import json
 import threading
-import uuid,time
+import uuid, time
 from tqdm import tqdm
 from langchain_cohere import CohereEmbeddings
 from langchain_chroma import Chroma
@@ -18,11 +18,11 @@ DB_PATH = "C:\\Users\\rudra\\Desktop\\File_Finder\\Common_DB"
 embedding_model = OllamaEmbeddings(
     model="nomic-embed-text:latest",
 )
+user_dir = ["Downloads", "Documents", "Desktop"]
 
 
 def create_Database():
     folder_paths = []
-    user_dir = ["Downloads", "Documents", "Desktop"]
     Root_dir = "C:\\Users\\rudra"
     for root_dir in user_dir:
         folder_path = os.path.join(Root_dir, root_dir)
@@ -54,6 +54,7 @@ def create_Database():
         print(f"✅ ChromaDB now contains {len(stored_ids)} documents")
     print("🎉 All files indexed successfully!")
     return db
+
 
 def load_vector_db():
     if os.path.isdir(DB_PATH):
@@ -137,17 +138,19 @@ def get_file_hash(filepath):
         return None
 
 
-def create_snapshot(directory):
+def create_snapshot():
     """Creates a snapshot of all files in the directory."""
     print("🛠️ Creating snapshot of the directory...")
     snapshot = {}
-    for root, _, files in os.walk(directory):
-        for file in files:
-            filepath = os.path.join(root, file)
-            snapshot[filepath] = {
-                "size": os.path.getsize(filepath),
-                "hash": get_file_hash(filepath),
-            }
+    for dir in user_dir:
+        dir_path = os.path.join(os.path.join(os.environ["USERPROFILE"]), dir)
+        for root, _, files in os.walk(dir_path):
+            for file in files:
+                filepath = os.path.join(root, file)
+                snapshot[filepath] = {
+                    "size": os.path.getsize(filepath),
+                    "hash": get_file_hash(filepath),
+                }
 
     with open(SNAPSHOT_FILE, "w") as f:
         json.dump(snapshot, f, indent=4)
@@ -155,29 +158,27 @@ def create_snapshot(directory):
     print("✅ Snapshot created.")
 
 
-def track_directory(db: Chroma, directory):
-    if not os.path.exists(directory):
-        print(f"❌ Error: Directory does not exist: {directory}.")
-        return
-
+def track_directory(db: Chroma):
     if not os.path.exists(SNAPSHOT_FILE):
         print("❗ No previous snapshot found. Creating a new one...")
-        create_snapshot(directory)
+        create_snapshot()
         return
 
     with open(SNAPSHOT_FILE, "r") as f:
         old_snapshot = json.load(f)
 
     new_snapshot = {}
-    for root, _, files in os.walk(directory):
-        for file in files:
-            if file == "desktop_tracker.json":
-                continue
-            filepath = os.path.join(root, file)
-            new_snapshot[filepath] = {
-                "size": os.path.getsize(filepath),
-                "hash": get_file_hash(filepath),
-            }
+    for dir in user_dir:
+        dir_path = os.path.join(os.path.join(os.environ["USERPROFILE"]), dir)
+        for root, _, files in os.walk(dir_path):
+            for file in files:
+                if file == "desktop_tracker.json":
+                    continue
+                filepath = os.path.join(root, file)
+                new_snapshot[filepath] = {
+                    "size": os.path.getsize(filepath),
+                    "hash": get_file_hash(filepath),
+                }
 
     added = list(set(new_snapshot.keys()) - set(old_snapshot.keys()))
     removed = list(set(old_snapshot.keys()) - set(new_snapshot.keys()))
@@ -232,8 +233,8 @@ else:
 
     def monitor_directory():
         while True:
-            track_directory(db, TRACKER_DIR)
-            time.sleep(3)
+            track_directory(db)
+            time.sleep(1)
 
     directory_thread = threading.Thread(target=monitor_directory, daemon=True)
     directory_thread.start()
