@@ -11,9 +11,11 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_community.document_loaders import TextLoader, DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-TRACKER_DIR = "C:\\Users\\rudra\\Desktop"
-SNAPSHOT_FILE = os.path.join(TRACKER_DIR, "desktop_tracker.json")
-DB_PATH = "C:\\Users\\rudra\\Desktop\\File_Finder\\Common_DB"
+SNAPSHOT_FILE = os.path.join(
+    os.path.join(os.path.join(os.environ["USERPROFILE"]), "Desktop"),
+    "desktop_tracker.json",
+)
+DB_PATH = os.path.join(os.path.join(os.environ["USERPROFILE"]), "Desktop\\Common_DB")
 
 embedding_model = OllamaEmbeddings(
     model="nomic-embed-text:latest",
@@ -23,7 +25,7 @@ user_dir = ["Downloads", "Documents", "Desktop"]
 
 def create_Database():
     folder_paths = []
-    Root_dir = "C:\\Users\\rudra"
+    Root_dir = os.environ["USERPROFILE"]
     for root_dir in user_dir:
         folder_path = os.path.join(Root_dir, root_dir)
         for folder in os.listdir(folder_path):
@@ -239,9 +241,7 @@ else:
     directory_thread = threading.Thread(target=monitor_directory, daemon=True)
     directory_thread.start()
 
-    while True:
-        query = input("🔍 Enter search query: ")
-        if query.lower() == "exit":
-            print("❌ Exiting program.")
-            break
-        similarity_search(query, db)
+    query = input("🔍 Enter search query: ")
+    if query.lower() == "exit":
+        print("❌ Exiting program.")
+    similarity_search(query, db)
